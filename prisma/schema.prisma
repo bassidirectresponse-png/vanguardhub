@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+enum Role { 
+  SUPER_ADMIN
+  OPERATOR
+}
+enum OrderStatus { 
+  PENDING
+  PAID
+  REFUSED
+  REFUNDED
+  CHARGEBACK
+  CANCELED
+}
+enum OrderType { 
+  ONE_TIME
+  RECURRING
+}
+enum PaymentMethod { 
+  credit_card
+  pix
+  boleto
+  paypal
+  other
+}
+enum ProductKind { 
+  FRONT
+  ORDER_BUMP
+  UPSELL
+  DOWNSELL
+  SUBSCRIPTION
+}
+enum SubscriptionStatus { 
+  ACTIVE
+  PENDING
+  REFUSED
+  RENEWED
+  LATE
+  CANCELED
+  PAUSED
+}
+enum SubscriptionEventType { 
+  CREATED
+  RENEWED
+  REFUSED
+  LATE
+  CANCELED
+  REACTIVATED
+}
+enum AccessLinkStatus { 
+  REQUESTED
+  GENERATED
+  ACCESSED
+  CONVERTED
+  EXPIRED
+  REVOKED
+}
+enum WebhookSource { 
+  SALES
+  UTMIFY
+  N8N
+}
+enum OutboxDestination { 
+  N8N
+  UTMIFY
+}
+enum OutboxStatus { 
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  passwordHash String
+  role Role @default(OPERATOR)
+  active Boolean @default(true)
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdById String?
+  createdBy User? @relation("CreatedUsers", fields: [createdById], references: [id])
+  createdUsers User[] @relation("CreatedUsers")
+  auditLogs AuditLog[]
+}
+
+model Customer {
+  id String @id @default(cuid())
+  name String
+  email String
+  emailNormalized String @unique
+  phone String?
+  phoneDigits String?
+  document String?
+  documentDigits String?
+  externalCustomerId String?
+  firstSeenAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders Order[]
+  subscriptions Subscription[]
+  accessLinks AccessLink[]
+  upsells UpsellConversion[]
+  @@index([documentDigits])
+  @@index([phoneDigits])
+}
+
+model Product {
+  id String @id @default(cuid())
+  source String
+  externalId String
+  name String
+  kind ProductKind @default(FRONT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items OrderItem[]
+  subscriptions Subscription[]
+  @@unique([source, externalId])
+}
+
+model Order {
+  id String @id @default(cuid())
+  source String
+  externalOrderId String
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+  status OrderStatus
+  type OrderType @default(ONE_TIME)
+  paymentMethod PaymentMethod
+  amountCents Int
+  currency String @default("BRL")
+  approvedAt DateTime?
+  refundedAt DateTime?
+  rawPayload Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items OrderItem[]
+  utm UtmSnapshot?
+  accessLinks AccessLink[]
+  subscriptionEvents SubscriptionEvent[]
+  upsellsAsFront UpsellConversion[] @relation("FrontOrder")
+  upsellsAsUpsell UpsellConversion[] @relation("UpsellOrder")
+  @@unique([source, externalOrderId])
+  @@index([status, approvedAt])
+  @@index([customerId])
+}
+
+model OrderItem {
+  id String @id @default(cuid())
+  orderId String
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product Product @relation(fields: [productId], references: [id])
+  amountCents Int
+  isUpsell Boolean @default(false)
+  isOrderBump Boolean @default(false)
+  @@unique([orderId, productId])
+}
+
+model Subscription {
+  id String @id @default(cuid())
+  source String
+  externalSubscriptionId String
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+  productId String?
+  product Product? @relation(fields: [productId], references: [id])
+  planName String?
+  frequency String?
+  status SubscriptionStatus
+  startedAt DateTime?
+  nextChargeAt DateTime?
+  lastChargeAt DateTime?
+  lastRenewedAt DateTime?
+  canceledAt DateTime?
+  cycleCount Int @default(1)
+  renewalCount Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  events SubscriptionEvent[]
+  @@unique([source, externalSubscriptionId])
+  @@index([status, lastRenewedAt])
+  @@index([customerId])
+}
+
+model SubscriptionEvent {
+  id String @id @default(cuid())
+  subscriptionId String
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  type SubscriptionEventType
+  orderId String?
+  order Order? @relation(fields: [orderId], references: [id])
+  occurredAt DateTime
+  amountCents Int?
+  rawPayload Json?
+  createdAt DateTime @default(now())
+}
+
+model AccessLink {
+  id String @id @default(cuid())
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+  orderId String
+  order Order @relation(fields: [orderId], references: [id])
+  token String? @unique
+  url String?
+  label String?
+  status AccessLinkStatus @default(REQUESTED)
+  requestedAt DateTime @default(now())
+  generatedAt DateTime?
+  lastAccessedAt DateTime?
+  expiresAt DateTime?
+  n8nRunId String?
+  metadata Json?
+  upsells UpsellConversion[]
+  @@index([orderId])
+  @@index([customerId, status])
+}
+
+model UpsellConversion {
+  id String @id @default(cuid())
+  customerId String
+  customer Customer @relation(fields: [customerId], references: [id])
+  accessLinkId String?
+  accessLink AccessLink? @relation(fields: [accessLinkId], references: [id])
+  frontOrderId String?
+  frontOrder Order? @relation("FrontOrder", fields: [frontOrderId], references: [id])
+  upsellOrderId String
+  upsellOrder Order @relation("UpsellOrder", fields: [upsellOrderId], references: [id])
+  productId String?
+  purchasedAt DateTime
+  amountCents Int
+  @@unique([upsellOrderId, productId])
+}
+
+model UtmSnapshot {
+  id String @id @default(cuid())
+  orderId String @unique
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  src String?
+  sck String?
+  utmSource String?
+  utmMedium String?
+  utmCampaign String?
+  utmContent String?
+  utmTerm String?
+}
+
+model WebhookInbox {
+  id String @id @default(cuid())
+  source WebhookSource
+  eventType String
+  externalKey String
+  payload Json
+  signatureOk Boolean @default(true)
+  processedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  @@unique([source, externalKey])
+  @@index([createdAt])
+}
+
+model WebhookOutbox {
+  id String @id @default(cuid())
+  destination OutboxDestination
+  eventType String
+  payload Json
+  status OutboxStatus @default(PENDING)
+  attempts Int @default(0)
+  lastError String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  userId String?
+  user User? @relation(fields: [userId], references: [id])
+  action String
+  entity String
+  entityId String?
+  meta Json?
+  createdAt DateTime @default(now())
+}

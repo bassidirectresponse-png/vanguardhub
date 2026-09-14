@@ -1,0 +1,2 @@
+import { NextRequest } from "next/server";
+export function validSecret(req:NextRequest, expected?:string){if(!expected)return process.env.NODE_ENV!=="production";const supplied=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"")??req.headers.get("x-webhook-secret")??req.headers.get("x-n8n-secret")??req.headers.get("x-vanguard-secret")??req.nextUrl.searchParams.get("token");return supplied===expected;}

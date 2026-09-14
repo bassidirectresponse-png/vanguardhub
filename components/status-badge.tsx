@@ -1,0 +1,3 @@
+import { statusLabel } from "@/lib/utils";
+const palette: Record<string, string> = { PAID:"badge-green", ACTIVE:"badge-green", RENEWED:"badge-green", GENERATED:"badge-blue", ACCESSED:"badge-green", CONVERTED:"badge-green", PENDING:"badge-yellow", REQUESTED:"badge-yellow", REFUSED:"badge-red", CHARGEBACK:"badge-red", LATE:"badge-orange", CANCELED:"badge-gray", REFUNDED:"badge-gray", EXPIRED:"badge-gray", REVOKED:"badge-gray" };
+export function StatusBadge({ status }: { status: string }) { return <span className={`badge ${palette[status] ?? "badge-gray"}`}>{statusLabel[status] ?? status}</span>; }
