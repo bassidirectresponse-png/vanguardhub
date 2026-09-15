@@ -1,6 +1,5 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 import { FormEvent, useState } from "react";
 
 export function LoginForm({ initialError = false }: { initialError?: boolean }) {
@@ -12,12 +11,24 @@ export function LoginForm({ initialError = false }: { initialError?: boolean }) 
     setError(false);
     setLoading(true);
     const form = new FormData(event.currentTarget);
-    const result = await signIn("credentials", {
-      redirect: false,
-      email: form.get("email"),
-      password: form.get("password"),
-    });
-    if (result?.error) {
+    try {
+      const csrfResponse = await fetch("/api/auth/csrf", { credentials: "same-origin" });
+      const { csrfToken } = await csrfResponse.json();
+      const body = new URLSearchParams({
+        csrfToken,
+        email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? ""),
+        callbackUrl: `${window.location.origin}/`,
+      });
+      const response = await fetch("/api/auth/callback/credentials", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+        redirect: "follow",
+      });
+      if (!response.url.endsWith("/") || response.url.includes("error=")) throw new Error("invalid credentials");
+    } catch {
       setError(true);
       setLoading(false);
       return;
